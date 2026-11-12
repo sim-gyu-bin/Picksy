@@ -1,0 +1,49 @@
+{
+  "description": "실제 로그가 아닌 게임·OMP 용도 모사. 정답은 실행 전에 작성하며 모델에 전달하지 않는다. 게임은 명시된 규칙을 적용한다.",
+  "groups": {
+    "game_choice": {
+      "question": {"type":"choice","instructions":"행동 선택: 체력 30 이하이면 물약이 있을 때 회복, 없으면 후퇴. 그 외 공격.","criteria":{"attack":"공격","heal":"회복","retreat":"후퇴"}},
+      "cases":[
+        {"id":"g-c1","state":"체력 20, 물약 1개.","expected":"heal"},
+        {"id":"g-c2","state":"체력 20, 물약 없음.","expected":"retreat"},
+        {"id":"g-c3","state":"체력 80, 물약 없음.","expected":"attack"},
+        {"id":"g-c4","state":"체력 30, 물약 2개.","expected":"heal"},
+        {"id":"g-c5","state":"체력 30, 물약 0개.","expected":"retreat"},
+        {"id":"g-c6","state":"체력 31, 물약 1개.","expected":"attack"}
+      ]
+    },
+    "omp_choice": {
+      "question":{"type":"choice","instructions":"변경의 주목적은?","criteria":{"fix":"기존 오류 수정","feature":"새 기능 추가","docs":"문서만 수정"}},
+      "cases":[
+        {"id":"o-c1","state":"빈 목록에서 발생하던 예외를 고쳤다.","expected":"fix"},
+        {"id":"o-c2","state":"CSV 내보내기 기능을 처음 추가했다.","expected":"feature"},
+        {"id":"o-c3","state":"README 설치 설명의 오타만 수정했다.","expected":"docs"},
+        {"id":"o-c4","state":"잘못 계산되던 합계를 바로잡았다. 기능은 그대로다.","expected":"fix"},
+        {"id":"o-c5","state":"오류 수정 없이 다크 모드 선택 기능을 추가했다.","expected":"feature"},
+        {"id":"o-c6","state":"버그 해결 방법을 문서에만 추가했다. 코드는 그대로다.","expected":"docs"}
+      ]
+    },
+    "omp_noul": {
+      "question":{"type":"noul","instructions":"요구사항을 충족했는가?"},
+      "cases":[
+        {"id":"o-n1","state":"요구: 빈 입력은 400. 결과: 빈 입력에 400 반환.","expected":true},
+        {"id":"o-n2","state":"요구: 빈 입력은 400. 결과: 빈 입력에 200 반환.","expected":false},
+        {"id":"o-n3","state":"요구: 오름차순 정렬. 결과: [1,2,3].","expected":true},
+        {"id":"o-n4","state":"요구: 오름차순 정렬. 결과: [3,2,1].","expected":false},
+        {"id":"o-n5","state":"요구: 중복 제거. 결과: [a,b,a]를 [a,b]로 반환.","expected":true},
+        {"id":"o-n6","state":"요구: 문서만 수정. 결과: README와 실행 코드도 수정.","expected":false}
+      ]
+    },
+    "game_score": {
+      "question":{"type":"score","instructions":"즉시 대응의 필요성은?","criteria":["안전: 현재 공격도 위험도 없음","경계: 적이 접근하지만 아직 공격하지 않음","긴급: 현재 피해를 받고 있음"]},
+      "cases":[
+        {"id":"g-s1","state":"적 없는 안전 구역에서 쉬고 있다.","expected":0},
+        {"id":"g-s2","state":"적이 다가오고 있으나 아직 공격하지 않았다.","expected":1},
+        {"id":"g-s3","state":"적에게 맞아 체력이 계속 감소한다.","expected":2},
+        {"id":"g-s4","state":"공격은 끝났고 적도 떠났다. 현재 위험은 없다.","expected":0},
+        {"id":"g-s5","state":"경비병이 접근 중이다. 피해는 없고 공격도 시작되지 않았다.","expected":1},
+        {"id":"g-s6","state":"적은 없지만 불길 속에서 지속 피해를 받고 있다.","expected":2}
+      ]
+    }
+  }
+}
