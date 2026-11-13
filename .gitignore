@@ -8,3 +8,7 @@
 
 # Rust 빌드 산출물
 /target/
+
+# 관리 화면의 설치·빌드 산출물
+/admin/node_modules/
+/admin/dist/

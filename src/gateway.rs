@@ -2,19 +2,22 @@ use std::time::Instant;
 
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{MatchedPath, Request, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{AUTHORIZATION, CACHE_CONTROL, RETRY_AFTER, WWW_AUTHENTICATE},
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::db::{Admission, Store, elapsed_ms, token_hash, valid_token_format};
+use crate::db::{
+    Admission, RequestKind, Store, TokenUsage, elapsed_ms, token_hash, valid_token_format,
+};
+use crate::inference::{self, Inference};
 
 #[derive(Clone, Copy)]
 struct RequestContext {
@@ -22,23 +25,49 @@ struct RequestContext {
     started: Instant,
 }
 
-/// 추론 경로는 등록하지 않는다. 인증 검사는 실제 키의 현재 허용 여부만 반환한다.
-pub fn router(store: Store) -> Router {
+#[derive(Clone)]
+struct Readiness {
+    store: Store,
+    inference: Inference,
+}
+
+/// 목록·추론·인증 확인이 같은 인증·공유 쿼터·사용량 경계를 통과한다.
+pub fn router(store: Store, inference: Inference) -> Router {
+    router_with_admin(store, inference, None)
+}
+
+/// 관리자 설정은 명시적으로 주입하며 기존 추론 전용 호출은 환경변수를 읽지 않는다.
+pub fn router_with_admin(
+    store: Store,
+    inference: Inference,
+    config: Option<crate::admin::AdminConfig>,
+) -> Router {
     let protected = Router::new()
         .route("/v1/auth/check", get(|| async { StatusCode::NO_CONTENT }))
+        .route("/v1/models", get(inference::models))
+        .route("/v1/systemone", post(inference::systemone))
+        .with_state(inference.clone())
         .route_layer(middleware::from_fn_with_state(store.clone(), authenticate));
+    let admin = crate::admin::router(store.clone(), config);
     Router::new()
         .route("/health/live", get(|| async { StatusCode::OK }))
         .route("/health/ready", get(ready))
+        .with_state(Readiness { store, inference })
         .merge(protected)
-        .with_state(store)
+        .merge(admin)
         .layer(middleware::from_fn(observe))
 }
 
-async fn ready(State(store): State<Store>) -> Response {
-    match store.ready().await {
-        Ok(()) => StatusCode::OK.into_response(),
-        Err(_) => unavailable(),
+async fn ready(State(state): State<Readiness>) -> Response {
+    let result = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+        let (database, inference) = tokio::join!(state.store.ready(), state.inference.ready());
+        database.is_ok() && inference
+    })
+    .await;
+    if matches!(result, Ok(true)) {
+        StatusCode::OK.into_response()
+    } else {
+        unavailable()
     }
 }
 
@@ -77,10 +106,40 @@ async fn authenticate(State(store): State<Store>, mut request: Request, next: Ne
     let Some(hash) = bearer(request.headers()).map(token_hash) else {
         return unauthorized();
     };
+    // 라우터가 확정한 경로만 신뢰한다. 쿼리·헤더·본문의 종류 주장은 사용하지 않는다.
+    let kind = match request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str)
+    {
+        Some("/v1/systemone") => RequestKind::Inference,
+        Some("/v1/models") => RequestKind::Models,
+        Some("/v1/auth/check") => RequestKind::AuthCheck,
+        _ => return unavailable(),
+    };
     // 인증 뒤 원문 Authorization이 후속 핸들러나 디버그 출력에 흘러가지 않게 제거한다.
     request.headers_mut().remove(AUTHORIZATION);
     let request_id = context.id.to_string();
-    match store.admit(&hash, &request_id, context.started).await {
+    // 접수 커밋 중 HTTP future가 drop되어도 DB 결과를 회수한다. 추론은 이 작업에 넣지 않는다.
+    // 수신 측이 사라지면 guard가 499를 기록하므로 커밋 성공 직후의 취소 틈도 막는다.
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let admission_store = store.clone();
+    tokio::spawn(async move {
+        let result = admission_store
+            .admit(&hash, &request_id, context.started, kind)
+            .await;
+        let guard = matches!(&result, Ok(Admission::Allowed)).then(|| UsageGuard {
+            store: admission_store,
+            request_id,
+            started: context.started,
+            armed: true,
+        });
+        let _ = sender.send((result, guard));
+    });
+    let Ok((admission, mut guard)) = receiver.await else {
+        return unavailable();
+    };
+    match admission {
         Ok(Admission::Unauthorized) => unauthorized(),
         Err(_) => unavailable(),
         Ok(Admission::Limited { retry_after }) => {
@@ -93,21 +152,55 @@ async fn authenticate(State(store): State<Store>, mut request: Request, next: Ne
         }
         Ok(Admission::Allowed) => {
             let response = next.run(request).await;
-            // 이번 단계는 본문 없는 204만 제공한다. 완료는 응답 전 기록이며 전달 보장은 아니다.
-            // 완료 UPDATE 실패 시 pending을 보존하고 HTTP 응답은 503으로 대체한다.
-            if store
+            let guard = guard.as_mut().expect("허용한 접수에는 완료 guard가 있다");
+            // 완료는 클라이언트 수신 확인이 아니라 서버 응답 생성 경계다.
+            // UPDATE 중 drop되면 guard가 남은 pending만 499로 종료하며 이미 완료된 값은 덮지 않는다.
+            // 검증된 추론 핸들러의 내부 확장만 전달하고 응답 본문은 복사·재해석하지 않는다.
+            let tokens = if matches!(kind, RequestKind::Inference) && response.status().is_success()
+            {
+                response.extensions().get::<TokenUsage>().copied()
+            } else {
+                None
+            };
+            let completed = store
                 .complete(
-                    &request_id,
+                    &guard.request_id,
                     response.status().as_u16(),
                     elapsed_ms(context.started),
+                    tokens,
                 )
-                .await
-                .is_err()
-            {
+                .await;
+            guard.armed = false;
+            if completed.is_err() {
                 return unavailable();
             }
             response
         }
+    }
+}
+
+struct UsageGuard {
+    store: Store,
+    request_id: String,
+    started: Instant,
+    armed: bool,
+}
+
+impl Drop for UsageGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let store = self.store.clone();
+        let id = std::mem::take(&mut self.request_id);
+        let duration = elapsed_ms(self.started);
+        // HTTP 서비스 future의 drop만 관찰한다. TCP 단절 감지·상류 계산 즉시 중단은 별도 경계다.
+        // 동기 Drop에서는 DB만 비동기 마무리한다. 런타임 강제 종료·DB 장애 시 pending은 보존된다.
+        tokio::spawn(async move {
+            if store.cancel(&id, duration).await.is_err() {
+                tracing::error!(target: "picksy::request", request_id = %id, status = 499, duration_ms = duration);
+            }
+        });
     }
 }
 
@@ -131,7 +224,7 @@ struct ErrorBody {
     error: &'static str,
 }
 
-fn api_error(status: StatusCode, error: &'static str) -> Response {
+pub(crate) fn api_error(status: StatusCode, error: &'static str) -> Response {
     (status, Json(ErrorBody { error })).into_response()
 }
 

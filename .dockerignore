@@ -1,0 +1,36 @@
+# 기본 거부 후 빌드 입력만 허용한다. Dockerfile 자체는 Docker가 별도로 읽는다.
+**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/*.rs
+!migrations/
+!migrations/*.sql
+!admin/
+!admin/package.json
+!admin/package-lock.json
+!admin/index.html
+!admin/tsconfig.json
+!admin/tailwind.config.cjs
+!admin/LICENSE.shadcn
+!admin/scripts/
+!admin/scripts/build.mjs
+!admin/src/
+!admin/src/**/
+!admin/src/**/*.ts
+!admin/src/**/*.tsx
+!admin/src/**/*.mjs
+!admin/src/**/*.css
+
+# 허용된 소스 디렉터리 아래에 잘못 놓인 비공개 파일·설치 산출물도 전달하지 않는다.
+**/.env
+**/.env.*
+**/.local
+**/.local/**
+**/.git
+**/.git/**
+**/node_modules
+**/node_modules/**
+**/dist
+**/dist/**
+**/*.pem
