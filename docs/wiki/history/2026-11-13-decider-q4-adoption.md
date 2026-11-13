@@ -4,8 +4,9 @@
 
 - 기록일: 2026-11-13
 - 결정일: 2026-11-13
-- 상태: 합의 — 단계 1 모델 선택 완료, 단계 2 진행 승인.
+- 상태: 후속 결정으로 대체됨. 당시 합의는 단계 1 모델 선택 완료, 단계 2 진행 승인이었다.
 - 출처: 사용자의 Decider-2B Q4_K_M 최종 채택·실험 소스 정리·후속 진행 요청. 아래 실측은 기존 실험 기록 재사용이며 이번 문서 편집에서 재실행하지 않았다.
+- 후속 결정: [d1 Q4 채택과 단계 4 진행 승인](2026-11-13-d1-q4-adoption.md). 아래 모델 선택·미구현·보존 문구는 당시 판단이며 현재 채택·정리 범위는 후속 기록을 따른다.
 
 ## 배경과 결정
 
@@ -19,7 +20,7 @@
 
 ## 대안과 선택 이유
 
-기존 동일 fixture의 Q4는 Q8 대비 정답 개수를 유지하면서 요청 대기가 약 37~38% 감소했다. 이는 전반적인 품질 무손실을 보장하지 않는다. Laya의 한국어 score 한계, Kev·Jeff의 짧은 게임 choice 실패와 더 큰 메모리 관측은 [비교 결과](../inference.md)에 보존한다. 일부 유형에서 다른 후보가 더 빠르거나 정확했으므로 Q4가 모든 과제에서 우월하다는 판단은 아니다. 최종 채택 근거는 이러한 한계를 확인한 뒤의 사용자 선택이다.
+기존 동일 fixture의 Q4는 Q8 대비 정답 개수를 유지하면서 요청 대기가 약 37~38% 감소했다. 이는 전반적인 품질 무손실을 보장하지 않는다. Laya의 한국어 score 한계, Kev·Jeff의 짧은 게임 choice 실패와 더 큰 메모리 관측은 [비교 이력](2026-11-13-inference-comparison.md)에 보존한다. 일부 유형에서 다른 후보가 더 빠르거나 정확했으므로 Q4가 모든 과제에서 우월하다는 판단은 아니다. 최종 채택 근거는 이러한 한계를 확인한 뒤의 사용자 선택이다.
 
 ## 결과·단점·검증 상태
 
@@ -36,6 +37,6 @@
 
 ## 근거
 
-- [Decider 실험과 패키지 소스 해시](../../../experiments/decider-q8/README.md).
+- [당시 실험과 패키지 소스 해시 보존](2026-11-13-inference-comparison.md). 원래 경로: `experiments/decider-q8/README.md`.
 - [고정 GGUF 모델 카드](https://huggingface.co/Mapika/decider-2b-GGUF/blob/0df001b8fe4e5298c5dd45d875d3795fcdaea0ab/README.md).
 - 로컬 `.local/picksy-dev/decider-q8/download-q4-manifest.json`, `decider-q4-original-1.json`, `decider-q4-paired2-1.json`, `short-q4-1.json`과 대응 stderr. Git에 원본 결과를 추가하지 않는다.

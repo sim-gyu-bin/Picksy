@@ -10,3 +10,8 @@
 | [프로젝트 전용 Wiki 채택](2026-11-12-project-wiki.md) | 프로젝트 스킬, 현재 지식과 결정 이력의 분리 |
 | [Laya CPU 검증과 품질 재검토](2026-11-12-laya-cpu-evaluation.md) | 실제 추론·계약 확인과 score 품질 기준 미달 |
 | [Decider Q4 채택과 단계 2 승인](2026-11-13-decider-q4-adoption.md) | 모델 선택 완료, 품질·지연 위험 유지, 실험 소스 정리 경계 |
+| [Gateway 키·제한·사용량 정책](2026-11-13-gateway-key-policy.md) | 로컬 CLI, 고엔트로피 키 해시, 공유 DB 제한·폐기·사용량 실패 정책 |
+| [추론 후보 비교 이력](2026-11-13-inference-comparison.md) | 과거 모델·양자화 결과, 해시·실패·라이선스·재현 조건 |
+| [이전 API 계약](2026-11-13-api-contract-history.md) | 당시 라이브러리·HTTP 계약과 OMP 소스 조사 |
+| [단계 2 풀 검증](2026-11-13-pool-validation.md) | Python Gateway·당시 엔진의 독립 풀 실행, 현재 d1과 구분 |
+| [d1 Q4 채택과 단계 4 승인](2026-11-13-d1-q4-adoption.md) | 현재 모델·런타임 고정, 한계·라이선스·정리 승인, 단계 4 미구현 |

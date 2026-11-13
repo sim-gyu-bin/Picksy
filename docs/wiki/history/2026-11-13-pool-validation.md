@@ -1,6 +1,58 @@
+# 단계 2 Python Gateway·Decider 독립 풀 검증
+
+[결정 인덱스](history.md) · [현재 추론](../inference.md) · [현재 아키텍처](../architecture.md)
+
+- 기록일: 2026-11-13
+- 상태: 과거 실행·판단 보존. 현재 채택은 [d1 Q4](2026-11-13-d1-q4-adoption.md)다.
+- 출처: 기존 문서와 실험 기록. 이번 문서 이동에서 추론·풀 검증을 재실행하지 않았다.
+
+아래의 현재·보존·미승인 표현은 **각 실험 당시 상태**다. 후속 채택·정리 승인이 이를 대체하며, 로컬 원본 경로는 보존 위치가 아니라 삭제 승인된 당시 경로일 수 있다. 삭제 실행 완료를 주장하지 않는다.
+
+
+
+**독립 풀 로컬 실험과 Rust Gateway·DB 기반 검증 완료 · 두 구성의 제품 통합 전.** 목표 구성은 Rust·Axum Gateway, Decider-2B Q4_K_M 추론 서버, Caddy다. 단계 2는 Python 실험 Gateway와 실제 Decider HTTP 래퍼를, 단계 3은 추론 없는 Rust Gateway·SQLite·키 관리를 각각 검증했다. [DB 기반 실행 근거](../operations.md). Rust와 Caddy·Decider 통합은 단계 4 대상이며 ARM64·운영 검증과 구분한다.
+
+- Gateway와 Decider는 1:1 쌍이 아닌 독립적인 풀이다. 평소에는 각각 1개를 실행한다.
+- 같은 Caddy의 공개 HTTPS 리스너는 Gateway 풀로, 비공개 내부 리스너는 Decider 풀로 요청을 전달한다.
+- 외부에는 공개 리스너만 노출한다. Gateway 인증을 우회해 Decider에 접근할 수 없어야 한다.
+- Gateway는 API 인증·요청 검증·호출 제한을 담당하는 방향이다. 구체적인 외부 API 및 오류 계약은 아직 확정하지 않았다.
+- 단계 2의 내부 탐색 관리기는 Docker DNS로 후보를 찾고 준비 상태를 확인한 뒤 Caddy 관리 API에 사용 가능한 풀을 반영한다. Docker 소켓 없이 관리 API를 전용 네트워크로 격리했다. 공개 요청은 키·본문을 보내지 않는 관리망 `/permit` 검사도 거친다. 관리기 중단·동기화 실패에는 신규 요청을 차단하고, Caddy 실제 설정 ETag를 확인해 재시작 후 다시 반영한다.
+
+표준 Caddy dynamic DNS upstream에는 active health check가 적용되지 않는다. 자동 탐색과 준비 전 제외를 함께 검증하기 위해 위 보조 기능을 선택했으며, 재시도로 미준비 요청 실패를 숨기지 않는다. [공식 제약](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#dynamic-upstreams).
+
+## 단계 2 실행 근거
+
+`experiments/stage2/smoke.py full`을 Intel Mac의 Docker amd64에서 실행해 통과했다. 구성·재현 명령 (당시 경로: `experiments/stage2/README.md`).
+
+- Gateway·추론 각각 YAML 변경 없이 실제 Compose 1→2→1, 두 풀 2+2에서 서로 다른 instance의 실제 응답을 관측했다.
+- 준비 장벽에 있는 복제본은 제외됐고, 축소 시 기존 요청 완료·Caddy 반영·종료 코드 0을 확인했다. choice·noul·score 실제 추론과 응답 body 보존을 검사했다.
+- 빈 풀은 503, controller 강제 종료 뒤 신규 요청은 502였으며 이미 접수된 요청은 완료됐다. Caddy 단독 재시작 후 worker 교체 없이 설정·TLS 연결이 복구됐다.
+- 전체 풀 재생성은 계획 중단으로 검사했다. IP가 재사용되어 별도 endpoint 변경을 수행했고 Gateway `172.30.241.5→172.30.241.200`, 추론 `172.30.242.5→172.30.242.200`을 자동 재탐색했다. 자동 롤링 배포 성공으로 해석하지 않는다.
+- 호스트 및 공개 ingress 전용 클라이언트에서 내부·관리 리스너 접근 차단, 인증 오류 401·추론 미호출을 확인했다. 이 범위는 Docker Desktop이며 원격 인터넷·Oracle 방화벽 검증은 아니다.
+- 마지막 1+1 상태의 네 컨테이너에서 OOM 종료 없음·시험 키 로그 미노출을 확인했다. 이때 `docker stats`의 추론 메모리는 1.761 GiB였으며 최대 RSS나 2+2 부하 측정값은 아니다. 검증 후 승인된 단계 2 컨테이너·네트워크·임시 TLS 자원과 경계 진단 컨테이너만 정리했다. 기존 모델·결과·이미지는 보존했다.
+
+
+## 제약과 확인 필요 사항
+
+- 단일 VM 구성이다. 서비스 복제는 VM 자체의 장애 대비가 아니다.
+- 내부 리스너·인증 경계와 자동 탐색·준비·분산은 위 로컬 실험에서 검증했다. 운영 환경에서도 별도로 검증해야 한다.
+- YAML 편집 없이 복제본 개수만 조절하는 경로를 확인했으나, 요청 부하에 따른 성능 개선과 운영 교체 자동화는 아직 보장하지 않는다. [DB와 배포](../operations.md).
+- 추론 서버와 OMP의 세부 계약·검증 과제는 [추론과 클라이언트 연동](../inference.md)에 둔다.
+
+## 근거와 관련 결정
+
+- [README 설계 방향](../../../README.md#설계-방향): 공개된 기술 선택 방향.
+- [인계된 설계 합의](2026-11-12-initial-design.md): 최초 Laya 구성의 역사적 근거.
+- [Decider Q4 채택](2026-11-13-decider-q4-adoption.md): 추론 엔진 교체와 단계 2 승인. 인증·독립 풀 경계는 유지한다.
+
+
+## 당시 실험 절차 원본: `experiments/stage2/README.md`
+
+아래 명령은 당시 실행 기록이며 현재 checkout의 실행 안내가 아니다.
+
 # 단계 2: 독립 Gateway·Decider 풀
 
-**로컬 실행 검증 완료.** Intel Mac의 Docker amd64에서 `python3 -B experiments/stage2/smoke.py full`을 실행해 통과했다. [관측 결과](../../docs/wiki/architecture.md). 제품 Rust Gateway, 운영 배포, OMP 종단 연동 또는 ARM64 성능 검증이 아니다. 모델 판단 품질과 인프라 성공을 구분한다.
+**로컬 실행 검증 완료.** Intel Mac의 Docker amd64에서 `python3 -B experiments/stage2/smoke.py full`을 실행해 통과했다. [관측 결과](../architecture.md). 제품 Rust Gateway, 운영 배포, OMP 종단 연동 또는 ARM64 성능 검증이 아니다. 모델 판단 품질과 인프라 성공을 구분한다.
 
 ## 구성과 승인된 선택
 
@@ -130,4 +182,17 @@ docker compose -p picksy-stage2 -f experiments/stage2/compose.yaml up -d --no-de
 - [Compose scale](https://docs.docker.com/reference/cli/docker/compose/scale/), [Compose up](https://docs.docker.com/reference/cli/docker/compose/up/): 복제본 증감/재생성은 준비 상태 기반 rolling update를 보장하지 않는다.
 - 대안 검토: [caddy-docker-proxy 공식 README](https://github.com/lucaslorentz/caddy-docker-proxy), 고정 소스 [generator.go](https://github.com/lucaslorentz/caddy-docker-proxy/blob/c78444b2b09afc9393b06922b1a6231b407cdeb7/generator/generator.go)·[containers.go](https://github.com/lucaslorentz/caddy-docker-proxy/blob/c78444b2b09afc9393b06922b1a6231b407cdeb7/generator/containers.go). 표준 Caddy 내장 기능이 아닌 Docker 메타데이터 기반 plugin이며 해당 컨테이너 선택 경로에 health 필터가 없다. Docker socket 권한 추가 없이 controller 방식을 채택했다.
 
-공식 자료 확인은 실제 연동 성공이 아니다. 실행 결과·사용한 환경·실패·모델 품질 제한은 메인이 [아키텍처 Wiki](../../docs/wiki/architecture.md)와 [추론 Wiki](../../docs/wiki/inference.md)에 갱신한다. 제품 채택 이후에도 이 실험의 합성 질문 몇 건을 Jev 동급 품질이나 Oracle ARM 성능 근거로 사용하지 않는다.
+공식 자료 확인은 실제 연동 성공이 아니다. 실행 결과·사용한 환경·실패·모델 품질 제한은 메인이 [아키텍처 Wiki](../architecture.md)와 [추론 Wiki](../inference.md)에 갱신한다. 제품 채택 이후에도 이 실험의 합성 질문 몇 건을 Jev 동급 품질이나 Oracle ARM 성능 근거로 사용하지 않는다.
+
+
+## 당시 계획서 완료 기록
+
+
+
+- `python3 -B experiments/stage2/smoke.py full` 성공. Caddy 2.10.2, 실제 Decider Q4, 인증·TLS·응답 원문 보존, 양쪽 독립 1→2→1 및 2+2 요청 분산을 관측했다.
+- 미준비 복제본 제외, 실제 진행 요청 완료 후 축소·종료 코드 0, 빈 풀 503, controller SIGKILL 뒤 신규 요청 502·기접수 응답 완료, Caddy 재시작 후 설정 재동기화를 확인했다.
+- 풀 전체 교체는 계획 중단이며 자동 롤링 배포가 아니다. Docker의 IP 재사용 때문에 별도로 endpoint IP를 변경해 재탐색을 확인했다.
+- 외부 차단은 현재 Docker Desktop 호스트와 ingress 전용 클라이언트에서 검증했다. Oracle ARM·인터넷 원격 경계·제품 Rust Gateway·DB·OMP 연동·두 복제본의 성능 비교는 미검증이다.
+- 재현 구성과 근거: 단계 2 실험 (당시 경로: `experiments/stage2/README.md`), [현재 아키텍처](../architecture.md).
+
+

@@ -1,4 +1,0 @@
-torch==2.14.0+cpu
-transformers==5.22.2
-decider-ai==1.10.0
-llama-cpp-python==0.3.36
